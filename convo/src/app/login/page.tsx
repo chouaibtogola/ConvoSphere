@@ -54,6 +54,15 @@ export default function LoginPage() {
     }, 2000)
   }
 
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const loginSuccessful = true; // or set this based on your login logic
+
+    if (loginSuccessful) {
+      router.push('/interests');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-500 flex justify-center items-center p-4">
       <motion.div
