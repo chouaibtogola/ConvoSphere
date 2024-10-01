@@ -15,6 +15,7 @@ export default function InterestsPage() {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveMessage, setSaveMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const router = useRouter();
 
   useEffect(() => {
@@ -30,7 +31,8 @@ export default function InterestsPage() {
 
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        setSelectedInterests(userData.interests || []);
+        // Limit to 3 interests even if more were previously saved
+        setSelectedInterests(userData.interests?.slice(0, 3) || []);
       }
 
       setLoading(false);
@@ -39,47 +41,54 @@ export default function InterestsPage() {
     fetchInterests();
   }, [router]);
 
-  const toggleInterest = (interest: string) => {
-    setSelectedInterests((prev) =>
-      prev.includes(interest)
-        ? prev.filter((i) => i !== interest)
-        : [...prev, interest]
-    );
+  const handleInterestToggle = (interest: string) => {
+    setSelectedInterests((prevInterests) => {
+      if (prevInterests.includes(interest)) {
+        // If the interest is already selected, remove it
+        setErrorMessage(''); // Clear error message when deselecting
+        return prevInterests.filter((i) => i !== interest);
+      } else {
+        // If the interest is not selected, add it only if less than 3 are selected
+        if (prevInterests.length < 3) {
+          setErrorMessage(''); // Clear error message when selecting valid number
+          return [...prevInterests, interest];
+        } else {
+          // If 3 interests are already selected, show an error message
+          setErrorMessage("You can't pick more than 3 interests.");
+          return prevInterests;
+        }
+      }
+    });
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (selectedInterests.length === 0) {
-      toast.error('Please select at least one interest');
+      setErrorMessage("Please select at least one interest.");
+      return;
+    }
+
+    if (selectedInterests.length > 3) {
+      setErrorMessage("You can only save up to 3 interests.");
       return;
     }
 
     const user = auth.currentUser;
     if (!user) {
+      toast.error("You must be logged in to save interests.");
       router.push('/login');
       return;
     }
 
     setLoading(true);
-    setSaveMessage('');
     try {
       const userDocRef = doc(db, 'users', user.uid);
-      
-      // Get the current user document
-      const userDoc = await getDoc(userDocRef);
-      const currentInterests = userDoc.data()?.interests || [];
-
-      // Check if the interests have actually changed
-      const interestsChanged = JSON.stringify(currentInterests.sort()) !== JSON.stringify(selectedInterests.sort());
-
-      if (interestsChanged) {
-        await setDoc(userDocRef, { interests: selectedInterests }, { merge: true });
-        setSaveMessage('Interests saved successfully!');
-      } else {
-        setSaveMessage('No changes to save');
-      }
+      await setDoc(userDocRef, { interests: selectedInterests.slice(0, 3) }, { merge: true });
+      toast.success("Interests saved successfully!");
+      router.push('/'); // Redirect to home page after saving
     } catch (error) {
-      console.error('Error saving interests:', error);
-      setSaveMessage('Failed to save interests. Please try again.');
+      console.error("Error saving interests:", error);
+      toast.error("Failed to save interests. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -98,7 +107,7 @@ export default function InterestsPage() {
           {interests.map((interest) => (
             <button
               key={interest}
-              onClick={() => toggleInterest(interest)}
+              onClick={() => handleInterestToggle(interest)}
               className={`p-4 rounded-lg text-center transition-colors ${
                 selectedInterests.includes(interest)
                   ? 'bg-white text-purple-600'
@@ -112,14 +121,14 @@ export default function InterestsPage() {
         <div className="flex flex-col items-center">
           <button
             onClick={handleSubmit}
-            className="px-6 py-2 bg-white text-purple-600 rounded-lg hover:bg-gray-100 transition-colors font-semibold"
+            className="px-6 py-2 bg-white text-purple-600 rounded-lg hover:bg-gray-100 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={loading}
           >
             {loading ? 'Saving...' : 'Save Interests'}
           </button>
-          {saveMessage && (
+          {errorMessage && (
             <p className={`mt-2 text-sm ${saveMessage.includes('successfully') ? 'text-green-300' : 'text-yellow-300'}`}>
-              {saveMessage}
+              {errorMessage}
             </p>
           )}
         </div>
