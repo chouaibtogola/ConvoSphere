@@ -7,12 +7,16 @@ import { useRouter } from 'next/navigation'
 import { Button } from "@/app/components/ui/button"
 import { Input } from "@/app/components/ui/input"
 import { Label } from "@/app/components/ui/label"
+import { auth, db } from '../../lib/firebase'
+import { signInWithEmailAndPassword } from 'firebase/auth'
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { updateOnlineStatus } from '../../../lib/userStatus'
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [email, setEmail] = useState<string>('')
   const [password, setPassword] = useState<string>('')
-  const [errors, setErrors] = useState({ email: '', password: '' })
+  const [errors, setErrors] = useState({ email: '', password: '', general: '' })
   const router = useRouter()
 
   const validateForm = () => {
@@ -35,7 +39,7 @@ export default function LoginPage() {
       isValid = false
     }
 
-    setErrors(newErrors)
+    setErrors({ ...newErrors, general: '' }) // Ensure 'general' property is included
     return isValid
   }
 
@@ -48,10 +52,26 @@ export default function LoginPage() {
 
     setIsLoading(true)
 
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password)
+      const user = userCredential.user
+
+      // Update user's online status and last login
+      await setDoc(doc(db, 'users', user.uid), {
+        isOnline: true,
+        lastLogin: serverTimestamp(),
+      }, { merge: true })
+
+      // Set up online status tracking
+      updateOnlineStatus(user.uid)
+
       router.push('/interests')
-    }, 2000)
+    } catch (error) {
+      console.error('Error logging in:', error)
+      setErrors({ ...errors, general: 'Failed to log in. Please try again.' })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleLogin = async (e: React.FormEvent) => {
