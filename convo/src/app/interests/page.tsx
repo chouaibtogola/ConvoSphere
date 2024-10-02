@@ -21,6 +21,9 @@ export default function InterestsPage() {
   const [originalInterests, setOriginalInterests] = useState<string[]>([]);
   const router = useRouter();
 
+  // Add this state to force re-renders when interests change
+  const [interestsChanged, setInterestsChanged] = useState(false);
+
   useEffect(() => {
     const fetchInterests = async () => {
       const user = auth.currentUser;
@@ -34,12 +37,11 @@ export default function InterestsPage() {
 
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        // Limit to 3 interests even if more were previously saved
         const userInterests = userData.interests?.slice(0, 3) || [];
         setSelectedInterests(userInterests);
-        setOriginalInterests(userInterests); // Set the original interests
-        // Recalculate potential matches
+        setOriginalInterests(userInterests);
         await calculatePotentialMatches(userInterests);
+        setInterestsChanged(false); // Reset the change flag
       }
 
       setLoading(false);
@@ -105,19 +107,18 @@ export default function InterestsPage() {
       let newInterests;
       if (prevInterests.includes(interest)) {
         newInterests = prevInterests.filter((i) => i !== interest);
-        setErrorMessage('');
       } else {
         if (prevInterests.length < 3) {
           newInterests = [...prevInterests, interest];
-          setErrorMessage('');
         } else {
           setErrorMessage("You can't pick more than 3 interests.");
           return prevInterests;
         }
       }
 
-      // Calculate potential matches after updating interests
+      setErrorMessage('');
       calculatePotentialMatches(newInterests);
+      setInterestsChanged(true); // Set the change flag
       return newInterests;
     });
   };
@@ -150,7 +151,7 @@ export default function InterestsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!interestsHaveChanged()) {
-      return; // Don't do anything if interests haven't changed
+      return;
     }
 
     if (selectedInterests.length === 0) {
@@ -183,8 +184,8 @@ export default function InterestsPage() {
       setMatches(matchedUsers);
 
       toast.success("Interests saved successfully!");
-      // Remove the redirect line
-      // router.push('/'); // This line is removed
+      setInterestsChanged(false); // Reset the change flag after successful save
+      setOriginalInterests([...selectedInterests]); // Update original interests
     } catch (error) {
       console.error("Error saving interests:", error);
       toast.error("Failed to save interests. Please try again.");
@@ -195,7 +196,7 @@ export default function InterestsPage() {
 
   const interestsHaveChanged = () => {
     if (selectedInterests.length !== originalInterests.length) return true;
-    return !selectedInterests.every(interest => originalInterests.includes(interest));
+    return !selectedInterests.every(interest => originalInterests.includes(interest)) || interestsChanged;
   };
 
   if (loading && !auth.currentUser) {
@@ -235,7 +236,7 @@ export default function InterestsPage() {
           <button
             onClick={handleSubmit}
             className={`px-6 py-2 rounded-lg transition-colors font-semibold ${
-              interestsHaveChanged()
+              interestsHaveChanged() && !loading
                 ? 'bg-white text-purple-600 hover:bg-gray-100'
                 : 'bg-gray-400 text-gray-600 cursor-not-allowed'
             }`}
@@ -248,6 +249,13 @@ export default function InterestsPage() {
               {errorMessage}
             </p>
           )}
+          
+          {/* New "Look for Match" button */}
+          <button
+            className="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg transition-colors font-semibold hover:bg-green-600"
+          >
+            Look for Match
+          </button>
         </div>
         
         {matches.length > 0 && (
