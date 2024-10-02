@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
 import { auth, db } from '../../lib/firebase';
-import { doc, setDoc, getDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, getDocs, query, where, onSnapshot } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 
 const interests = [
@@ -34,7 +34,10 @@ export default function InterestsPage() {
       if (userDoc.exists()) {
         const userData = userDoc.data();
         // Limit to 3 interests even if more were previously saved
-        setSelectedInterests(userData.interests?.slice(0, 3) || []);
+        const userInterests = userData.interests?.slice(0, 3) || [];
+        setSelectedInterests(userInterests);
+        // Recalculate potential matches
+        await calculatePotentialMatches(userInterests);
       }
 
       setLoading(false);
@@ -42,6 +45,18 @@ export default function InterestsPage() {
 
     fetchInterests();
   }, [router]);
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const usersRef = collection(db, 'users');
+    const unsubscribe = onSnapshot(usersRef, (snapshot) => {
+      calculatePotentialMatches(selectedInterests);
+    });
+
+    return () => unsubscribe();
+  }, [selectedInterests]);
 
   const calculatePotentialMatches = async (interests: string[]) => {
     if (interests.length === 0) {
@@ -52,20 +67,38 @@ export default function InterestsPage() {
     const usersRef = collection(db, 'users');
     const currentUserId = auth.currentUser?.uid;
 
-    // Query for users who are online, not matched, and have at least one common interest
+    // Ensure currentUserId is a string
+    if (typeof currentUserId !== 'string') {
+      throw new Error('currentUserId must be a string');
+    }
+
+    // Fetch the current user's interests from the database
+    const currentUserDoc = await getDoc(doc(db, 'users', currentUserId));
+    const currentUserInterests = currentUserDoc.data()?.interests || [];
+
+    // Query for users who are online and not matched
     const matchQuery = query(usersRef, 
       where('isOnline', '==', true),
-      where('isMatched', '==', false),
-      where('interests', 'array-contains-any', interests)
+      where('isMatched', '==', false)
     );
 
     const matchSnapshot = await getDocs(matchQuery);
-    const matchCount = matchSnapshot.docs.filter(doc => doc.id !== currentUserId).length;
+    console.log('Total users found:', matchSnapshot.docs.length);
 
+    const matchCount = matchSnapshot.docs.filter(doc => {
+      if (doc.id === currentUserId) return false;
+      const userInterests = doc.data().interests || [];
+      const hasCommonInterest = currentUserInterests.some((interest: string) => userInterests.includes(interest));
+      console.log('User:', doc.id, 'Interests:', userInterests, 'Has common interest:', hasCommonInterest);
+      return hasCommonInterest;
+    }).length;
+
+    console.log('Potential matches:', matchCount);
     setPotentialMatches(matchCount);
   };
 
   const handleInterestToggle = (interest: string) => {
+    console.log('Toggling interest:', interest);
     setSelectedInterests((prevInterests) => {
       let newInterests;
       if (prevInterests.includes(interest)) {
@@ -136,7 +169,7 @@ export default function InterestsPage() {
       const userDocRef = doc(db, 'users', user.uid);
       await setDoc(userDocRef, { 
         interests: selectedInterests.slice(0, 3),
-        isMatched: false // Add this line
+        isMatched: false
       }, { merge: true });
       
       // Find matches after saving interests
@@ -144,7 +177,8 @@ export default function InterestsPage() {
       setMatches(matchedUsers);
 
       toast.success("Interests saved successfully!");
-      router.push('/'); // Redirect to home page after saving
+      // Remove the redirect line
+      // router.push('/'); // This line is removed
     } catch (error) {
       console.error("Error saving interests:", error);
       toast.error("Failed to save interests. Please try again.");
