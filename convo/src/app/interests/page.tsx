@@ -199,6 +199,10 @@ export default function InterestsPage() {
     return !selectedInterests.every(interest => originalInterests.includes(interest)) || interestsChanged;
   };
 
+  const canLookForMatch = () => {
+    return selectedInterests.length === 3 && !interestsHaveChanged();
+  };
+
   if (loading && !auth.currentUser) {
     return <div>Loading...</div>;
   }
@@ -250,9 +254,14 @@ export default function InterestsPage() {
             </p>
           )}
           
-          {/* New "Look for Match" button */}
+          {/* Modified "Look for Match" button */}
           <button
-            className="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg transition-colors font-semibold hover:bg-green-600"
+            className={`mt-4 px-6 py-2 rounded-lg transition-colors font-semibold ${
+              canLookForMatch()
+                ? 'bg-green-500 text-white hover:bg-green-600'
+                : 'bg-gray-400 text-gray-600 cursor-not-allowed'
+            }`}
+            disabled={!canLookForMatch()}
           >
             Look for Match
           </button>
