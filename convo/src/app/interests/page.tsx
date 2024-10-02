@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
 import { auth, db } from '../../lib/firebase';
-import { doc, setDoc, getDoc, collection, getDocs, query, where, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, getDocs, query, where, onSnapshot, limit, updateDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 
 const interests = [
@@ -20,6 +20,7 @@ export default function InterestsPage() {
   const [potentialMatches, setPotentialMatches] = useState(0);
   const [originalInterests, setOriginalInterests] = useState<string[]>([]);
   const router = useRouter();
+  const [topicStarter, setTopicStarter] = useState('');
 
   // Add this state to force re-renders when interests change
   const [interestsChanged, setInterestsChanged] = useState(false);
@@ -203,6 +204,52 @@ export default function InterestsPage() {
     return selectedInterests.length === 3 && !interestsHaveChanged();
   };
 
+  const getTopicStarter = async (interests: string[]) => {
+    const topicStartersRef = collection(db, 'topicStarters');
+    const q = query(
+      topicStartersRef,
+      where('interest', 'in', interests),
+      where('used', '==', false),
+      limit(1)
+    );
+
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      const data = doc.data();
+      setTopicStarter(data.topic);
+
+      // Mark this topic as used
+      await updateDoc(doc.ref, { used: true });
+    } else {
+      // If all topics have been used, reset 'used' field for this interest
+      const resetQuery = query(topicStartersRef, where('interest', 'in', interests));
+      const resetSnapshot = await getDocs(resetQuery);
+      resetSnapshot.forEach(async (doc) => {
+        await updateDoc(doc.ref, { used: false });
+      });
+
+      // Try fetching a topic again
+      await getTopicStarter(interests);
+    }
+  };
+
+  const handleLookForMatch = async () => {
+    if (!canLookForMatch()) return;
+
+    try {
+      // Existing matching logic here...
+
+      // After finding a match, get a topic starter
+      await getTopicStarter(selectedInterests);
+
+      // You can now use the topicStarter state to display the conversation starter
+    } catch (error) {
+      console.error('Error looking for match:', error);
+      toast.error('Failed to find a match. Please try again.');
+    }
+  };
+
   if (loading && !auth.currentUser) {
     return <div>Loading...</div>;
   }
@@ -256,6 +303,7 @@ export default function InterestsPage() {
           
           {/* Modified "Look for Match" button */}
           <button
+            onClick={handleLookForMatch}
             className={`mt-4 px-6 py-2 rounded-lg transition-colors font-semibold ${
               canLookForMatch()
                 ? 'bg-green-500 text-white hover:bg-green-600'
@@ -278,6 +326,13 @@ export default function InterestsPage() {
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {topicStarter && (
+          <div className="mt-4 p-4 bg-white text-purple-600 rounded-lg">
+            <h3 className="font-bold mb-2">Conversation Starter:</h3>
+            <p>{topicStarter}</p>
           </div>
         )}
       </main>
