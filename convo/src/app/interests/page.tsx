@@ -18,6 +18,7 @@ export default function InterestsPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [matches, setMatches] = useState<{ userId: string, commonInterests: string[] }[]>([]);
   const [potentialMatches, setPotentialMatches] = useState(0);
+  const [originalInterests, setOriginalInterests] = useState<string[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export default function InterestsPage() {
         // Limit to 3 interests even if more were previously saved
         const userInterests = userData.interests?.slice(0, 3) || [];
         setSelectedInterests(userInterests);
+        setOriginalInterests(userInterests); // Set the original interests
         // Recalculate potential matches
         await calculatePotentialMatches(userInterests);
       }
@@ -147,6 +149,10 @@ export default function InterestsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!interestsHaveChanged()) {
+      return; // Don't do anything if interests haven't changed
+    }
+
     if (selectedInterests.length === 0) {
       setErrorMessage("Please select at least one interest.");
       return;
@@ -187,6 +193,11 @@ export default function InterestsPage() {
     }
   };
 
+  const interestsHaveChanged = () => {
+    if (selectedInterests.length !== originalInterests.length) return true;
+    return !selectedInterests.every(interest => originalInterests.includes(interest));
+  };
+
   if (loading && !auth.currentUser) {
     return <div>Loading...</div>;
   }
@@ -223,8 +234,12 @@ export default function InterestsPage() {
         <div className="flex flex-col items-center">
           <button
             onClick={handleSubmit}
-            className="px-6 py-2 bg-white text-purple-600 rounded-lg hover:bg-gray-100 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={loading}
+            className={`px-6 py-2 rounded-lg transition-colors font-semibold ${
+              interestsHaveChanged()
+                ? 'bg-white text-purple-600 hover:bg-gray-100'
+                : 'bg-gray-400 text-gray-600 cursor-not-allowed'
+            }`}
+            disabled={loading || !interestsHaveChanged()}
           >
             {loading ? 'Saving...' : 'Save Interests'}
           </button>
