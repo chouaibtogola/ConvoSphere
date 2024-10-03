@@ -1,10 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
 import { auth, db } from '../../lib/firebase';
-import { doc, setDoc, getDoc, collection, getDocs, query, where, onSnapshot, limit, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, getDocs, query, where, onSnapshot, limit, updateDoc, addDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
+import { ToastOptions } from 'react-toastify';
+import { FirebaseError } from 'firebase/app';
+
+// Add this type extension before your component
+interface CustomToastOptions extends ToastOptions {
+  toastId?: string;
+}
+
+interface User {
+  // ... existing properties ...
+  matchedWith?: string | null;
+}
 
 const interests = [
   'Cars', 'Tech', 'Animals', 'Cooking', 'Sports',
@@ -19,38 +31,42 @@ export default function InterestsPage() {
   const [matches, setMatches] = useState<{ userId: string, commonInterests: string[] }[]>([]);
   const [potentialMatches, setPotentialMatches] = useState(0);
   const [originalInterests, setOriginalInterests] = useState<string[]>([]);
-  const router = useRouter();
   const [topicStarter, setTopicStarter] = useState('');
-
-  // Add this state to force re-renders when interests change
   const [interestsChanged, setInterestsChanged] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchCancelledRef = useRef(false);
+  const router = useRouter();
 
   useEffect(() => {
-    const fetchInterests = async () => {
-      const user = auth.currentUser;
-      if (!user) {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        const userDocRef = doc(db, 'users', user.uid);
+        
+        // Set up a real-time listener for the user document
+        const userUnsubscribe = onSnapshot(userDocRef, (doc) => {
+          if (doc.exists()) {
+            const userData = doc.data();
+            const userInterests = userData.interests || [];
+            console.log('Fetched interests:', userInterests); // Add this log
+            setSelectedInterests(userInterests);
+            setOriginalInterests(userInterests);
+            calculatePotentialMatches(userInterests);
+            setInterestsChanged(false);
+          }
+          setLoading(false);
+        });
+
+        return () => userUnsubscribe();
+      } else {
+        setLoading(false);
         router.push('/login');
-        return;
       }
+    });
 
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(userDocRef);
-
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const userInterests = userData.interests?.slice(0, 3) || [];
-        setSelectedInterests(userInterests);
-        setOriginalInterests(userInterests);
-        await calculatePotentialMatches(userInterests);
-        setInterestsChanged(false); // Reset the change flag
-      }
-
-      setLoading(false);
-    };
-
-    fetchInterests();
+    return () => unsubscribe();
   }, [router]);
 
+  // useEffect for potential matches calculation
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
@@ -62,6 +78,16 @@ export default function InterestsPage() {
 
     return () => unsubscribe();
   }, [selectedInterests]);
+
+  // useEffect for search cancellation on unmount
+  useEffect(() => {
+    return () => {
+      if (isSearching) {
+        console.log("Component unmounting, search in progress");
+        // We're not cancelling the search here
+      }
+    };
+  }, [isSearching]);
 
   const calculatePotentialMatches = async (interests: string[]) => {
     if (interests.length === 0) {
@@ -175,21 +201,28 @@ export default function InterestsPage() {
     setLoading(true);
     try {
       const userDocRef = doc(db, 'users', user.uid);
-      await setDoc(userDocRef, { 
+      const dataToUpdate = { 
         interests: selectedInterests.slice(0, 3),
-        isMatched: false
-      }, { merge: true });
+        isMatched: false,
+        isLookingForMatch: false
+      };
+
+      console.log('Updating user document with:', dataToUpdate);
+
+      await setDoc(userDocRef, dataToUpdate, { merge: true });
       
-      // Find matches after saving interests
-      const matchedUsers = await findMatches(selectedInterests);
-      setMatches(matchedUsers);
+      console.log('User document updated successfully');
 
       toast.success("Interests saved successfully!");
-      setInterestsChanged(false); // Reset the change flag after successful save
-      setOriginalInterests([...selectedInterests]); // Update original interests
+      setInterestsChanged(false);
+      setOriginalInterests([...selectedInterests]);
     } catch (error) {
       console.error("Error saving interests:", error);
-      toast.error("Failed to save interests. Please try again.");
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
+      toast.error(`Failed to save interests: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -220,13 +253,21 @@ export default function InterestsPage() {
       setTopicStarter(data.topic);
 
       // Mark this topic as used
-      await updateDoc(doc.ref, { used: true });
+      await updateDoc(doc.ref, { 
+        used: true,
+        topic: data.topic,
+        interest: data.interest
+      });
     } else {
       // If all topics have been used, reset 'used' field for this interest
       const resetQuery = query(topicStartersRef, where('interest', 'in', interests));
       const resetSnapshot = await getDocs(resetQuery);
       resetSnapshot.forEach(async (doc) => {
-        await updateDoc(doc.ref, { used: false });
+        await updateDoc(doc.ref, { 
+          used: false,
+          topic: doc.data().topic,
+          interest: doc.data().interest
+        });
       });
 
       // Try fetching a topic again
@@ -234,25 +275,147 @@ export default function InterestsPage() {
     }
   };
 
+  const cancelSearch = async () => {
+    searchCancelledRef.current = true;
+    setIsSearching(false);
+    toast("Match search cancelled.");
+
+    const user = auth.currentUser;
+    if (user) {
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, { 
+        isLookingForMatch: false,
+        isMatched: false
+      });
+    }
+  };
+
   const handleLookForMatch = async () => {
     if (!canLookForMatch()) return;
 
+    const user = auth.currentUser;
+    if (!user) {
+      toast.error("You must be logged in to look for a match.");
+      router.push('/login');
+      return;
+    }
+
+    setIsSearching(true);
+    searchCancelledRef.current = false;
+    let matchFound = false;
+
     try {
-      // Existing matching logic here...
+      setLoading(true);
+      console.log("Starting match process");
 
-      // After finding a match, get a topic starter
-      await getTopicStarter(selectedInterests);
+      // Update user's status to looking for match
+      const userDocRef = doc(db, 'users', user.uid);
+      console.log("Updating user document");
+      await updateDoc(userDocRef, { 
+        isLookingForMatch: true,
+        lastMatchAttempt: new Date(),
+        isMatched: false,
+        isOnline: true
+      });
+      console.log("User document updated successfully");
 
-      // You can now use the topicStarter state to display the conversation starter
+      const findMatch = async () => {
+        console.log("Searching for matches");
+        const matchesQuery = query(
+          collection(db, 'users'),
+          where('isOnline', '==', true),
+          where('isMatched', '==', false),
+          where('isLookingForMatch', '==', true),
+          where('interests', 'array-contains-any', selectedInterests)
+        );
+
+        const matchSnapshot = await getDocs(matchesQuery);
+        console.log("Query executed, found", matchSnapshot.docs.length, "potential matches");
+
+        return matchSnapshot.docs
+          .filter(doc => doc.id !== user.uid)
+          .map(doc => ({ id: doc.id, ...doc.data() }));
+      };
+
+      // Use a separate function for the matching loop
+      const matchingLoop = async () => {
+        while (!matchFound && !searchCancelledRef.current) {
+          const potentialMatches = await findMatch();
+          
+          console.log(`Found ${potentialMatches.length} potential matches`);
+
+          for (const match of potentialMatches) {
+            if (searchCancelledRef.current) break;
+            const matchDocRef = doc(db, 'users', match.id);
+            const matchDoc = await getDoc(matchDocRef);
+            
+            console.log(`Checking match ${match.id}:`, matchDoc.data());
+            
+            if (matchDoc.data()?.isMatched === false && matchDoc.data()?.isOnline === true && matchDoc.data()?.isLookingForMatch === true) {
+              console.log(`Match criteria met for user ${match.id}, creating chat room`);
+              const chatRoomRef = await addDoc(collection(db, 'chatRooms'), {
+                participants: [user.uid, match.id],
+                createdAt: new Date(),
+                expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+              });
+
+              await updateDoc(userDocRef, { 
+                isMatched: true, 
+                matchedWith: match.id,
+                isLookingForMatch: false,
+                currentChatRoom: chatRoomRef.id
+              });
+              await updateDoc(matchDocRef, { 
+                isMatched: true, 
+                matchedWith: user.uid,
+                isLookingForMatch: false,
+                currentChatRoom: chatRoomRef.id
+              });
+
+              await getTopicStarter(selectedInterests);
+
+              toast.success("Match found! Redirecting to chat...");
+              router.push(`/chat/${chatRoomRef.id}`);
+              matchFound = true;
+              break;
+            } else {
+              console.log(`Match ${match.id} not eligible:`, {
+                isMatched: matchDoc.data()?.isMatched,
+                isOnline: matchDoc.data()?.isOnline,
+                isLookingForMatch: matchDoc.data()?.isLookingForMatch
+              });
+            }
+          }
+          
+          if (!matchFound && !searchCancelledRef.current) {
+            console.log("No match found, waiting before next attempt");
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+        }
+
+        if (searchCancelledRef.current) {
+          console.log("Match search cancelled.");
+        } else if (matchFound) {
+          console.log("Match found!");
+        }
+      };
+
+      // Start the matching loop
+      matchingLoop().catch(error => {
+        console.error('Error in matching loop:', error);
+      });
+
     } catch (error) {
-      console.error('Error looking for match:', error);
-      toast.error('Failed to find a match. Please try again.');
+      console.error('Error in matching process:', error);
+      toast.error('An error occurred during the matching process. Please try again.');
     }
   };
 
   if (loading && !auth.currentUser) {
     return <div>Loading...</div>;
   }
+
+  console.log('Current selected interests:', selectedInterests); // Add this log
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-purple-600 text-white">
@@ -301,18 +464,31 @@ export default function InterestsPage() {
             </p>
           )}
           
-          {/* Modified "Look for Match" button */}
-          <button
-            onClick={handleLookForMatch}
-            className={`mt-4 px-6 py-2 rounded-lg transition-colors font-semibold ${
-              canLookForMatch()
-                ? 'bg-green-500 text-white hover:bg-green-600'
-                : 'bg-gray-400 text-gray-600 cursor-not-allowed'
-            }`}
-            disabled={!canLookForMatch()}
-          >
-            Look for Match
-          </button>
+          <div className="flex flex-col items-center">
+            {!isSearching ? (
+              <button
+                onClick={handleLookForMatch}
+                className={`mt-4 px-6 py-2 rounded-lg transition-colors font-semibold ${
+                  canLookForMatch()
+                    ? 'bg-green-500 text-white hover:bg-green-600'
+                    : 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                }`}
+                disabled={!canLookForMatch()}
+              >
+                Look for Match
+              </button>
+            ) : (
+              <div className="flex flex-col items-center">
+                <p className="mb-2">Searching for a match...</p>
+                <button
+                  onClick={cancelSearch}
+                  className="px-6 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
+                >
+                  Cancel Search
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         
         {matches.length > 0 && (
