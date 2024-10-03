@@ -301,114 +301,92 @@ export default function InterestsPage() {
     }
 
     setIsSearching(true);
-    searchCancelledRef.current = false;
-    let matchFound = false;
+    setLoading(true);
 
     try {
-      setLoading(true);
-      console.log("Starting match process");
-
-      // Update user's status to looking for match
       const userDocRef = doc(db, 'users', user.uid);
-      console.log("Updating user document");
-      await updateDoc(userDocRef, { 
+      
+      // Add user to waiting room
+      await updateDoc(userDocRef, {
         isLookingForMatch: true,
         lastMatchAttempt: new Date(),
         isMatched: false,
-        isOnline: true
-      });
-      console.log("User document updated successfully");
-
-      const findMatch = async () => {
-        console.log("Searching for matches");
-        const matchesQuery = query(
-          collection(db, 'users'),
-          where('isOnline', '==', true),
-          where('isMatched', '==', false),
-          where('isLookingForMatch', '==', true),
-          where('interests', 'array-contains-any', selectedInterests)
-        );
-
-        const matchSnapshot = await getDocs(matchesQuery);
-        console.log("Query executed, found", matchSnapshot.docs.length, "potential matches");
-
-        return matchSnapshot.docs
-          .filter(doc => doc.id !== user.uid)
-          .map(doc => ({ id: doc.id, ...doc.data() }));
-      };
-
-      // Use a separate function for the matching loop
-      const matchingLoop = async () => {
-        while (!matchFound && !searchCancelledRef.current) {
-          const potentialMatches = await findMatch();
-          
-          console.log(`Found ${potentialMatches.length} potential matches`);
-
-          for (const match of potentialMatches) {
-            if (searchCancelledRef.current) break;
-            const matchDocRef = doc(db, 'users', match.id);
-            const matchDoc = await getDoc(matchDocRef);
-            
-            console.log(`Checking match ${match.id}:`, matchDoc.data());
-            
-            if (matchDoc.data()?.isMatched === false && matchDoc.data()?.isOnline === true && matchDoc.data()?.isLookingForMatch === true) {
-              console.log(`Match criteria met for user ${match.id}, creating chat room`);
-              const chatRoomRef = await addDoc(collection(db, 'chatRooms'), {
-                participants: [user.uid, match.id],
-                createdAt: new Date(),
-                expiresAt: new Date(Date.now() + 5 * 60 * 1000)
-              });
-
-              await updateDoc(userDocRef, { 
-                isMatched: true, 
-                matchedWith: match.id,
-                isLookingForMatch: false,
-                currentChatRoom: chatRoomRef.id
-              });
-              await updateDoc(matchDocRef, { 
-                isMatched: true, 
-                matchedWith: user.uid,
-                isLookingForMatch: false,
-                currentChatRoom: chatRoomRef.id
-              });
-
-              await getTopicStarter(selectedInterests);
-
-              toast.success("Match found! Redirecting to chat...");
-              router.push(`/chat/${chatRoomRef.id}`);
-              matchFound = true;
-              break;
-            } else {
-              console.log(`Match ${match.id} not eligible:`, {
-                isMatched: matchDoc.data()?.isMatched,
-                isOnline: matchDoc.data()?.isOnline,
-                isLookingForMatch: matchDoc.data()?.isLookingForMatch
-              });
-            }
-          }
-          
-          if (!matchFound && !searchCancelledRef.current) {
-            console.log("No match found, waiting before next attempt");
-            await new Promise(resolve => setTimeout(resolve, 5000));
-          }
-        }
-
-        if (searchCancelledRef.current) {
-          console.log("Match search cancelled.");
-        } else if (matchFound) {
-          console.log("Match found!");
-        }
-      };
-
-      // Start the matching loop
-      matchingLoop().catch(error => {
-        console.error('Error in matching loop:', error);
+        isOnline: true,
+        interests: selectedInterests
       });
 
+      // Look for a match in the waiting room
+      const matchResult = await findMatchInWaitingRoom(user.uid, selectedInterests);
+
+      if (matchResult) {
+        // Match found
+        const chatRoomRef = await createChatRoom(user.uid, matchResult.id);
+        await updateMatchedUsers(user.uid, matchResult.id, chatRoomRef.id);
+        await getTopicStarter(selectedInterests);
+        toast.success("Match found! Redirecting to chat...");
+        router.push(`/chat/${chatRoomRef.id}`);
+      } else {
+        // No match found
+        toast("You've been added to the waiting room. We'll notify you when a match is found.");
+      }
     } catch (error) {
       console.error('Error in matching process:', error);
       toast.error('An error occurred during the matching process. Please try again.');
+    } finally {
+      setLoading(false);
+      setIsSearching(false);
     }
+  };
+
+  const findMatchInWaitingRoom = async (userId: string, userInterests: string[]) => {
+    const usersRef = collection(db, 'users');
+    const q = query(
+      usersRef,
+      where('isLookingForMatch', '==', true),
+      where('isMatched', '==', false),
+      where('isOnline', '==', true)
+    );
+
+    const querySnapshot = await getDocs(q);
+    for (const doc of querySnapshot.docs) {
+      if (doc.id !== userId) {
+        const potentialMatch = doc.data();
+        const commonInterests = userInterests.filter(interest => 
+          potentialMatch.interests.includes(interest)
+        );
+        if (commonInterests.length > 0) {
+          return { id: doc.id, ...potentialMatch };
+        }
+      }
+    }
+    return null;
+  };
+
+  const createChatRoom = async (user1Id: string, user2Id: string) => {
+    return await addDoc(collection(db, 'chatRooms'), {
+      participants: [user1Id, user2Id],
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+    });
+  };
+
+  const updateMatchedUsers = async (user1Id: string, user2Id: string, chatRoomId: string) => {
+    const user1Ref = doc(db, 'users', user1Id);
+    const user2Ref = doc(db, 'users', user2Id);
+
+    await updateDoc(user1Ref, {
+      isMatched: true,
+      matchedWith: user2Id,
+      isLookingForMatch: false,
+      currentChatRoom: chatRoomId
+    });
+
+    await updateDoc(user2Ref, {
+      isMatched: true,
+      matchedWith: user1Id,
+      isLookingForMatch: false,
+      currentChatRoom: chatRoomId
+    });
   };
 
   if (loading && !auth.currentUser) {
