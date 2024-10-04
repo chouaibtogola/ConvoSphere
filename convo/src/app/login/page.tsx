@@ -21,7 +21,7 @@ export default function LoginPage() {
 
   const validateForm = () => {
     let isValid = true
-    const newErrors = { email: '', password: '' }
+    const newErrors = { email: '', password: '', general: '' }
 
     if (!email) {
       newErrors.email = 'Email is required'
@@ -39,7 +39,7 @@ export default function LoginPage() {
       isValid = false
     }
 
-    setErrors({ ...newErrors, general: '' }) // Ensure 'general' property is included
+    setErrors(newErrors)
     return isValid
   }
 
@@ -73,15 +73,6 @@ export default function LoginPage() {
       setIsLoading(false)
     }
   }
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const loginSuccessful = true; // or set this based on your login logic
-
-    if (loginSuccessful) {
-      router.push('/interests');
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-500 flex justify-center items-center p-4">
@@ -142,12 +133,12 @@ export default function LoginPage() {
           </div>
         </form>
         <p className="mt-4 text-center text-sm text-gray-600">
-  Don&apos;t have an account?{' '}
-  <Link href="/register" className="text-purple-600 hover:text-purple-500">
-    Create one here
-  </Link>
-</p>
-
+          Don&apos;t have an account?{' '}
+          <Link href="/register" className="text-purple-600 hover:text-purple-500">
+            Create one here
+          </Link>
+        </p>
+        {errors.general && <p className="text-red-500 text-sm mt-2 text-center">{errors.general}</p>}
       </motion.div>
     </div>
   )
