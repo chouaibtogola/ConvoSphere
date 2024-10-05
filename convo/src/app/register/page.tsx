@@ -4,35 +4,66 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { registerUser } from '../../lib/firebase'  // Import the registerUser function
+import { Button } from "@/app/components/ui/button"
+import { Input } from "@/app/components/ui/input"
+import { Label } from "@/app/components/ui/label"
+import { register } from '@/lib/api' // Updated import path
+import { useAuth } from '@/contexts/AuthContext' // Updated import path
 
 export default function RegisterPage() {
+  const [isLoading, setIsLoading] = useState<boolean>(false)
   const [email, setEmail] = useState<string>('')
   const [password, setPassword] = useState<string>('')
   const [confirmPassword, setConfirmPassword] = useState<string>('')
-  const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [errors, setErrors] = useState({ email: '', password: '', confirmPassword: '', general: '' })
   const router = useRouter()
+  const { setUser } = useAuth() // Use auth context
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
+  const validateForm = () => {
+    let isValid = true
+    const newErrors = { email: '', password: '', confirmPassword: '', general: '' }
+
+    if (!email) {
+      newErrors.email = 'Email is required'
+      isValid = false
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
+      newErrors.email = 'Email is invalid'
+      isValid = false
+    }
+
+    if (!password) {
+      newErrors.password = 'Password is required'
+      isValid = false
+    } else if (password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters'
+      isValid = false
+    }
 
     if (password !== confirmPassword) {
-      setError("Passwords don't match")
+      newErrors.confirmPassword = 'Passwords do not match'
+      isValid = false
+    }
+
+    setErrors(newErrors)
+    return isValid
+  }
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!validateForm()) {
       return
     }
 
     setIsLoading(true)
+
     try {
-      // Call registerUser to create user in Firebase and Firestore
-      const userCredential = await registerUser(email, password)
-      console.log('User registered successfully:', userCredential.user.uid)
-      // Redirect to login or another page after successful registration
-      router.push('/login')
+      const userData = await register(email, password)
+      setUser(userData) // Update user context
+      router.push('/interests')
     } catch (error) {
-      console.error('Error during registration:', error)
-      setError('Failed to register. Please try again.')
+      console.error('Error registering:', error)
+      setErrors({ ...errors, general: 'Failed to register. Please try again.' })
     } finally {
       setIsLoading(false)
     }
@@ -49,8 +80,8 @@ export default function RegisterPage() {
         <h1 className="text-3xl font-bold text-center text-gray-800 mb-6">Register for Convo</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
-            <input
+            <Label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</Label>
+            <Input
               type="email"
               id="email"
               value={email}
@@ -60,8 +91,8 @@ export default function RegisterPage() {
             />
           </div>
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
-            <input
+            <Label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</Label>
+            <Input
               type="password"
               id="password"
               value={password}
@@ -71,8 +102,8 @@ export default function RegisterPage() {
             />
           </div>
           <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">Confirm Password</label>
-            <input
+            <Label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">Confirm Password</Label>
+            <Input
               type="password"
               id="confirmPassword"
               value={confirmPassword}
@@ -81,14 +112,14 @@ export default function RegisterPage() {
               required
             />
           </div>
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-          <button
+          {errors.general && <p className="text-red-500 text-sm">{errors.general}</p>}
+          <Button
             type="submit"
             className="w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50"
             disabled={isLoading}
           >
             {isLoading ? "Registering..." : "Register"}
-          </button>
+          </Button>
         </form>
         <p className="mt-4 text-center text-sm text-gray-600">
           Already have an account?{' '}

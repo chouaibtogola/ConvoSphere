@@ -7,10 +7,8 @@ import { useRouter } from 'next/navigation'
 import { Button } from "@/app/components/ui/button"
 import { Input } from "@/app/components/ui/input"
 import { Label } from "@/app/components/ui/label"
-import { auth, db } from '../../lib/firebase'
-import { signInWithEmailAndPassword } from 'firebase/auth'
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
-import { updateOnlineStatus } from '../../../lib/userStatus'
+import { login } from '@/lib/api' // Updated import path
+import { useAuth } from '@/contexts/AuthContext' // Updated import path
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false)
@@ -18,6 +16,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState<string>('')
   const [errors, setErrors] = useState({ email: '', password: '', general: '' })
   const router = useRouter()
+  const { setUser } = useAuth() // Use auth context
 
   const validateForm = () => {
     let isValid = true
@@ -53,18 +52,8 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password)
-      const user = userCredential.user
-
-      // Update user's online status and last login
-      await setDoc(doc(db, 'users', user.uid), {
-        isOnline: true,
-        lastLogin: serverTimestamp(),
-      }, { merge: true })
-
-      // Set up online status tracking
-      updateOnlineStatus(user.uid)
-
+      const userData = await login(email, password)
+      setUser(userData) // Update user context
       router.push('/interests')
     } catch (error) {
       console.error('Error logging in:', error)
