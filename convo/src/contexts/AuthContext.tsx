@@ -1,51 +1,97 @@
-import React, { createContext, useState, useContext, useEffect } from 'react'
-import axios from 'axios'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'
+import axios from 'axios';
+import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
 
 interface User {
-  id: string
-  email: string
+  id: string;
+  username: string;
+  // Add other user properties as needed
 }
 
 interface AuthContextType {
-  user: User | null
-  setUser: React.Dispatch<React.SetStateAction<User | null>>
-  logout: () => void
+  user: User | null;
+  loading: boolean;
+  login: (username: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null)
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  const checkAuthStatus = async () => {
+    try {
+      // Remove 'undefined' from the URL
+      const response = await axios.get('/api/check-auth', { withCredentials: true });
+      setUser(response.data.user);
+      setIsAuthenticated(true);
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+      setUser(null);
+      setIsAuthenticated(false);
+    }
+  };
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      axios.get(`${API_URL}/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      .then(response => setUser(response.data.user))
-      .catch(() => localStorage.removeItem('token'))
+    checkAuthStatus();
+  }, [checkAuthStatus]);
+
+  const login = async (username: string, password: string) => {
+    try {
+      const response = await axios.post(`${process.env.REACT_APP_API_URL}/api/login`, {
+        username,
+        password
+      }, { withCredentials: true });
+      setUser(response.data.user);
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
     }
-  }, [])
+  };
 
-  const logout = () => {
-    localStorage.removeItem('token')
-    setUser(null)
-  }
+  const register = async (username: string, email: string, password: string) => {
+    try {
+      await axios.post(`${process.env.REACT_APP_API_URL}/register`, {
+        username,
+        email,
+        password
+      });
+      // After successful registration, log the user in
+      await login(email, password);
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error;
+    }
+  };
 
-  return (
-    <AuthContext.Provider value={{ user, setUser, logout }}>
-      {children}
-    </AuthContext.Provider>
-  )
-}
+  const logout = async () => {
+    try {
+      await axios.post(`${process.env.REACT_APP_API_URL}/api/logout`, {}, { withCredentials: true });
+      setUser(null);
+    } catch (error) {
+      console.error('Logout error:', error);
+      throw error;
+    }
+  };
+
+  const value = {
+    user,
+    loading,
+    login,
+    register,
+    logout
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
 
 export const useAuth = () => {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
   }
-  return context
-}
+  return context;
+};

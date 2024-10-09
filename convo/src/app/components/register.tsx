@@ -5,30 +5,39 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createUserWithEmailAndPassword } from 'firebase/auth'
 import { auth } from '../../lib/firebase'
-import { Button } from "@/app/components/ui/button"
-import { Input } from "@/app/components/ui/input"
-import { Label } from "@/app/components/ui/label"
+import { Button } from "../components/ui/button"
+import { Input } from "../components/ui/input"
+import { Label } from "../components/ui/label"
 import { MountainIcon } from 'lucide-react'
 import { addUserToFirestore } from '@/api/auth'
+import axios from 'axios'
+import { register } from '@/lib/api' // Updated import path
 
 export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [email, setEmail] = useState<string>("")
   const [password, setPassword] = useState<string>("")
   const [confirmPassword, setConfirmPassword] = useState<string>("")
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
     setIsLoading(true)
 
+    if (password !== confirmPassword) {
+      setError("Passwords don't match")
+      setIsLoading(false)
+      return
+    }
+
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
-      await addUserToFirestore(userCredential.user.uid, email)
-      router.push('/interests')
+      await register(email, email, password) // Using email as username for now
+      router.push('/login')
     } catch (error) {
       console.error('Registration error:', error)
-      // Handle error (e.g., show error message to user)
+      setError(error instanceof Error ? error.message : 'An error occurred during registration')
     } finally {
       setIsLoading(false)
     }
@@ -84,6 +93,7 @@ export default function RegisterPage() {
             <Button className="w-full" type="submit" disabled={isLoading}>
               {isLoading ? "Registering..." : "Register"}
             </Button>
+            {error && <p className="text-red-500 mt-2">{error}</p>}
           </form>
           <p className="mt-4 text-center">
             Already have an account? <Link href="/login" className="text-blue-400 hover:underline">Login</Link>

@@ -3,38 +3,46 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node server.js",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
-    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-label": "^latest-version",
     "@radix-ui/react-tabs": "^1.1.0",
+    "@types/react": "^17.0.0",
+    "@types/react-dom": "^18",
     "@types/react-router-dom": "^5.3.3",
-    "axios": "^1.7.7",
+    "axios": "^0.21.1",
     "class-variance-authority": "^0.7.0",
+    "cookie-parser": "^1.4.6",
+    "csurf": "^1.10.0",
+    "express-rate-limit": "^7.4.1",
+    "express-validator": "^7.2.0",
     "firebase": "^10.13.2",
     "firebase-admin": "^12.6.0",
     "firebase-functions": "^6.0.1",
     "framer-motion": "^11.9.0",
     "lucide-react": "^0.446.0",
     "next": "14.2.13",
-    "react": "^18",
-    "react-dom": "^18",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
     "react-hot-toast": "^2.4.1",
     "react-router-dom": "^6.26.2",
-    "tailwind-merge": "^2.5.2"
+    "tailwind-merge": "^2.5.2",
+    "@types/axios": "^0.14.0",
+    "@radix-ui/react-slot": "^latest-version"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/react": "^18.3.11",
-    "@types/react-dom": "^18",
     "@types/react-toastify": "^4.0.2",
     "eslint": "^8",
     "eslint-config-next": "14.2.13",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@types/react": "^17.0.0",
+    "@types/axios": "^0.14.0"
   }
 }
